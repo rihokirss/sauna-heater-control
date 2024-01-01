@@ -1,5 +1,3 @@
-GitHub Repository Description for Sauna Control Scripts
-
 Overview
 This repository contains two JavaScript scripts designed for the Shelly Plus 2PM smart relay, equipped with a Shelly addon featuring two DS18B20 temperature sensors. The primary application of these scripts is to control a contactor connected to a sauna heater, ensuring efficient and safe operation of a sauna heating system.
 
