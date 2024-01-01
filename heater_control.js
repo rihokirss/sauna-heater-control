@@ -7,7 +7,7 @@ let CONFIG = {
   thermal_runaway: 30,          // Max allowed temperature difference
   thermal_runaway_max: 110,     // Max allowed temperature
   safety_script_name: "heater_watchdog", // Name of the watchdog script
-  debug: true                   // Debug mode status
+  debug: false                   // Debug mode status
 };
 
 let saunaActive = false;        // Boolean indicating if sauna control is active
