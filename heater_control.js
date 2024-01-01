@@ -7,7 +7,7 @@ let CONFIG = {
   thermal_runaway: 30,          // Max allowed temperature difference
   thermal_runaway_max: 110,     // Max allowed temperature
   safety_script_name: "heater_watchdog", // Name of the watchdog script
-  debug: true                   // Debug mode status
+  debug: false                  // Debug mode status
 };
 
 let saunaActive = false;        // Boolean indicating if sauna control is active
@@ -59,20 +59,24 @@ function checkSafetyScript() {
 
       // Use a for-loop to search for the script
       for (let i = 0; i < result.scripts.length; i++) {
+        
         if (result.scripts[i].name === CONFIG.safety_script_name) {
+          //print(result.scripts[i].name);
+          //print(CONFIG.safety_script_name);
           scriptFound = true;
           scriptRunning = result.scripts[i].running;
           break;
         }
       }
-
+      //print(scriptRunning);
+      //print(scriptFound);
       // Check if the script is found and running
-      if (scriptFound && !scriptRunning) {
-        if (CONFIG.debug) console.log("Check script not running");
-        safetyScriptRunning = false;
-      } else {
-        if (CONFIG.debug) console.log("Check script running");
+      if (scriptFound && scriptRunning) {
+        if (CONFIG.debug) console.log("Check script running!");
         safetyScriptRunning = true;
+      } else {
+        if (CONFIG.debug) console.log("Check script not running");
+        safetyScriptRunning = false;        
       }
     } else {
       console.log("Error listing scripts: " + err_message);
@@ -100,5 +104,53 @@ function ControlSauna() {
     return;
   }
 
-  // Turn off the heater if the temperature is too high or sensor readings differ too much
-  if (heater_active && (error_active || Math.max(sauna_temp1, sauna
+   // Turn off the heater if the temperature is too high or sensor readings differ too much
+  if (heater_active && (error_active || Math.max(sauna_temp1, sauna_temp2) >= CONFIG.temp_setpoint)) {
+    Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: false });
+    if (CONFIG.debug) console.log("Heater off, max temp: " + Math.max(sauna_temp1, sauna_temp2));
+  } else if (!heater_active && !error_active && (Math.max(sauna_temp1, sauna_temp2) < CONFIG.temp_setpoint - CONFIG.temp_delta)) {
+    // Turns on the heater if the temperature is lower than the set limit
+    Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: true });
+    if (CONFIG.debug) console.log("Heater on, min temp: " + Math.max(sauna_temp1, sauna_temp2));
+  }
+
+  // Logs temperatures if debug mode is enabled
+  if (CONFIG.debug) {
+    console.log("Heater active: " + heater_active);
+    console.log("Sauna active (s): " + Math.round(timeActive / 1000));
+    console.log("Temp1: " + sauna_temp1 + ", Temp2: " + sauna_temp2);   
+  }
+}
+
+Shelly.addEventHandler(function (event) {
+  if (typeof event.info.event === "undefined") return;
+  if (event.info.component === "input:" + JSON.stringify(CONFIG.input_id)) {
+    if (event.info.state) { 
+        saunaActive = true;
+        startTime = Date.now(); // Starts the timer when sauna control is activated
+        if (CONFIG.debug) {
+          console.log("Sauna activated: " + startTime); 
+          console.log("Input state: " + event.info.state);
+        }     
+    } else {
+        saunaActive = false;   // Deactivates sauna control
+        if (CONFIG.debug) {
+          console.log("Sauna deactivated");
+          console.log("Input state: " + event.info.state);
+        }
+    }
+  }
+});
+
+// Set up the switch timer
+Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached" }});
+
+// Set a timer to read temperature every 5 seconds
+Timer.set(5000, true, ControlSauna);
+
+// Logs the input status if debug mode is enabled
+if (CONFIG.debug) {
+   console.log("START: Sauna active: " + saunaActive);
+   console.log("START: Heater on: " + Shelly.getComponentStatus('Switch', CONFIG.switch_id).output);
+   console.log("START: Sauna switch on: " + Shelly.getComponentStatus('Input', CONFIG.switch_id).state);
+}
