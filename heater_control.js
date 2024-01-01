@@ -7,7 +7,7 @@ let CONFIG = {
   thermal_runaway: 30,          // Max allowed temperature difference
   thermal_runaway_max: 110,     // Max allowed temperature
   safety_script_name: "heater_watchdog", // Name of the watchdog script
-  debug: false                  // Debug mode status
+  debug: true                   // Debug mode status
 };
 
 let saunaActive = false;        // Boolean indicating if sauna control is active
@@ -142,8 +142,8 @@ Shelly.addEventHandler(function (event) {
   }
 });
 
-// Set up the switch timer
-Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached" }});
+// Configure switch
+Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached", initial_state: "off" }});
 
 // Set a timer to read temperature every 5 seconds
 Timer.set(5000, true, ControlSauna);
