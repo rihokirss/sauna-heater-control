@@ -1,8 +1,9 @@
 let CONFIG = {
-  temp_setpoint: 75,            // Desired sauna temperature
+  temp_setpoint: 85,            // Desired sauna temperature
   temp_delta: 5,                // Temperature change limit
   timer_on: 5 * 60 * 60 * 1000, // Maximum operating time (5 hours)
   switch_id: 0,                 // Shelly switch ID for heater control
+  greenlight_id: 1,                 // Shelly switch ID for heater control
   input_id: 0,                  // Input ID for sauna control
   thermal_runaway: 30,          // Max allowed temperature difference
   thermal_runaway_max: 110,     // Max allowed temperature
@@ -15,6 +16,8 @@ let startTime = null;           // Timer tracking the start of sauna operation
 let error_difference = false;
 let error_maxtemp = false;
 let safetyScriptRunning = true; // Global variable for the status of the safety script
+let errorActive = false;        // Global error status
+let blinkTimer = null;          // Timer for blinking the green light
 
 // Error checking
 function errorCheck() {
@@ -44,8 +47,12 @@ function errorCheck() {
     Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: false });
     saunaActive = false;
     console.log("ERROR: heater stopped");
+    errorActive = true;
+    startBlinkingGreenLight();
     return true;
   } else {
+    errorActive = false;
+    stopBlinkingGreenLight();
     return false;
   }
 }
@@ -85,6 +92,24 @@ function checkSafetyScript() {
   });
 }
 
+// Function to start blinking the green light
+function startBlinkingGreenLight() {
+  if (blinkTimer === null) {
+    blinkTimer = Timer.set(1000, true, function() {
+      let currentState = Shelly.getComponentStatus('Switch', CONFIG.greenlight_id).output;
+      Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: !currentState });
+    });
+  }
+}
+
+// Function to stop blinking the green light
+function stopBlinkingGreenLight() {
+  if (blinkTimer !== null) {
+    Timer.clear(blinkTimer);
+    blinkTimer = null;
+    Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: false });
+  }
+}
 
 // Function to read temperature and control the heater
 function ControlSauna() {
@@ -127,6 +152,7 @@ Shelly.addEventHandler(function (event) {
   if (event.info.component === "input:" + JSON.stringify(CONFIG.input_id)) {
     if (event.info.state) { 
         saunaActive = true;
+        Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: true })
         startTime = Date.now(); // Starts the timer when sauna control is activated
         if (CONFIG.debug) {
           console.log("Sauna activated: " + startTime); 
@@ -134,6 +160,7 @@ Shelly.addEventHandler(function (event) {
         }     
     } else {
         saunaActive = false;   // Deactivates sauna control
+        Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: false })
         if (CONFIG.debug) {
           console.log("Sauna deactivated");
           console.log("Input state: " + event.info.state);
@@ -144,9 +171,9 @@ Shelly.addEventHandler(function (event) {
 
 // Configure switch
 Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached", initial_state: "off" }});
-
+Shelly.call("Switch.SetConfig", { id: CONFIG.greenlight_id, config: {in_mode: "detached", initial_state: "off" }});
 // Set a timer to read temperature every 5 seconds
-Timer.set(5000, true, ControlSauna);
+Timer.set(1000, true, ControlSauna);
 
 // Logs the input status if debug mode is enabled
 if (CONFIG.debug) {
