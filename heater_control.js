@@ -1,5 +1,5 @@
 let CONFIG = {
-  temp_setpoint: 85,            // Desired sauna temperature
+  temp_setpoint: 80,            // Desired sauna temperature
   temp_delta: 5,                // Temperature change limit
   timer_on: 5 * 60 * 60 * 1000, // Maximum operating time (5 hours)
   switch_id: 0,                 // Shelly switch ID for heater control
@@ -152,6 +152,7 @@ Shelly.addEventHandler(function (event) {
   if (event.info.component === "input:" + JSON.stringify(CONFIG.input_id)) {
     if (event.info.state) { 
         saunaActive = true;
+        stopBlinkingGreenLight();
         Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: true })
         startTime = Date.now(); // Starts the timer when sauna control is activated
         if (CONFIG.debug) {
