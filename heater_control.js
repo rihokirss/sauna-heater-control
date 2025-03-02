@@ -3,11 +3,12 @@ let CONFIG = {
   temp_delta: 5,                // Temperature change limit
   timer_on: 5 * 60 * 60 * 1000, // Maximum operating time (5 hours)
   switch_id: 0,                 // Shelly switch ID for heater control
-  greenlight_id: 1,                 // Shelly switch ID for heater control
+  greenlight_id: 1,             // Shelly switch ID for heater control
   input_id: 0,                  // Input ID for sauna control
   thermal_runaway: 30,          // Max allowed temperature difference
   thermal_runaway_max: 110,     // Max allowed temperature
   safety_script_name: "heater_watchdog", // Name of the watchdog script
+  consecutive_null_threshold: 5, // Number of consecutive failed sensor readings before stopping
   debug: false                   // Debug mode status
 };
 
@@ -18,42 +19,69 @@ let error_maxtemp = false;
 let safetyScriptRunning = true; // Global variable for the status of the safety script
 let errorActive = false;        // Global error status
 let blinkTimer = null;          // Timer for blinking the green light
+let consecutiveNullCount = 0;   // Counter for consecutive sensor read failures
 
-// Error checking
+// Error checking – modified to wait for 'consecutive_null_threshold' failed readings before stopping
 function errorCheck() {
   let sauna_temp1 = Shelly.getComponentStatus('Temperature', 100).tC; // First sensor
   let sauna_temp2 = Shelly.getComponentStatus('Temperature', 101).tC; // Second sensor
   
-  checkSafetyScript(); // Check if the safety script is running
+  let errorMessages = [];
   
-  // Temperature difference
-  if (Math.abs(sauna_temp1 - sauna_temp2) > CONFIG.thermal_runaway) {
-    error_difference = true;
-    console.log("ERROR: sensor temperature difference");
-    console.log("Temp1: " + sauna_temp1 + ", Temp2: " + sauna_temp2);
+  // Check if sensor readings are available
+  if (typeof sauna_temp1 !== 'number' || typeof sauna_temp2 !== 'number') {
+      consecutiveNullCount++;
+      if (consecutiveNullCount < CONFIG.consecutive_null_threshold) {
+          if (CONFIG.debug) console.log("WARNING: Sensor data missing (attempt " + consecutiveNullCount + "/" + CONFIG.consecutive_null_threshold + "). Temp1: " + sauna_temp1 + ", Temp2: " + sauna_temp2);
+          return false;
+      } else {
+          errorMessages.push("Invalid or missing sensor data after " + CONFIG.consecutive_null_threshold + " consecutive readings. Temp1: " + sauna_temp1 + ", Temp2: " + sauna_temp2);
+      }
   } else {
-    error_difference = false;
-  }
-  // Max temperature reached
-  if (Math.max(sauna_temp1, sauna_temp2) > CONFIG.thermal_runaway_max) {
-    error_maxtemp = true;
-    console.log("ERROR: max allowed temperature exceeded");
-  } else {
-    error_maxtemp = false;
+      consecutiveNullCount = 0; // Reset counter when data is available
   }
   
-  // Activate error
-  if (error_difference || error_maxtemp || !safetyScriptRunning || !sauna_temp1 || !sauna_temp2) {
-    Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: false });
-    saunaActive = false;
-    console.log("ERROR: heater stopped");
-    errorActive = true;
-    startBlinkingGreenLight();
-    return true;
+  // Check if the safety script is running
+  checkSafetyScript();
+  
+  // Temperature difference check
+  let diff = Math.abs(sauna_temp1 - sauna_temp2);
+  if (diff > CONFIG.thermal_runaway) {
+      error_difference = true;
+      errorMessages.push("Sensor temperature difference exceeded limit. Limit: " + CONFIG.thermal_runaway + ", actual: " + diff);
   } else {
-    errorActive = false;
-    stopBlinkingGreenLight();
-    return false;
+      error_difference = false;
+  }
+  
+  // Max temperature check
+  let maxTemp = Math.max(sauna_temp1, sauna_temp2);
+  if (maxTemp > CONFIG.thermal_runaway_max) {
+      error_maxtemp = true;
+      errorMessages.push("Max allowed temperature exceeded. Limit: " + CONFIG.thermal_runaway_max + ", actual: " + maxTemp);
+  } else {
+      error_maxtemp = false;
+  }
+  
+  // Check if safety script is running
+  if (!safetyScriptRunning) {
+      errorMessages.push("Safety script '" + CONFIG.safety_script_name + "' is not running.");
+  }
+  
+  // If any error condition is met, stop the heater and log errors
+  if (errorMessages.length > 0) {
+      Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: false });
+      saunaActive = false;
+      errorActive = true;
+      console.log("ERROR: Heater stopped due to the following reasons:");
+      errorMessages.forEach(function(msg) {
+         console.log("  - " + msg);
+      });
+      startBlinkingGreenLight();
+      return true;
+  } else {
+      errorActive = false;
+      stopBlinkingGreenLight();
+      return false;
   }
 }
 
@@ -64,7 +92,6 @@ function checkSafetyScript() {
       let scriptFound = false;
       let scriptRunning = false;
 
-      // Use a for-loop to search for the script
       for (let i = 0; i < result.scripts.length; i++) {
         
         if (result.scripts[i].name === CONFIG.safety_script_name) {
@@ -75,18 +102,21 @@ function checkSafetyScript() {
           break;
         }
       }
-      //print(scriptRunning);
-      //print(scriptFound);
-      // Check if the script is found and running
-      if (scriptFound && scriptRunning) {
-        if (CONFIG.debug) console.log("Check script running!");
-        safetyScriptRunning = true;
+      
+      if (scriptFound) {
+          if (scriptRunning) {
+              if (CONFIG.debug) console.log("DEBUG: Safety script '" + CONFIG.safety_script_name + "' is running.");
+              safetyScriptRunning = true;
+          } else {
+              console.log("ERROR: Safety script '" + CONFIG.safety_script_name + "' found but not running.");
+              safetyScriptRunning = false;
+          }
       } else {
-        if (CONFIG.debug) console.log("Check script not running");
-        safetyScriptRunning = false;        
+          console.log("ERROR: Safety script '" + CONFIG.safety_script_name + "' not found.");
+          safetyScriptRunning = false;
       }
     } else {
-      console.log("Error listing scripts: " + err_message);
+      console.log("ERROR: Failed to list scripts: " + err_message);
       safetyScriptRunning = false;
     }
   });
@@ -99,6 +129,7 @@ function startBlinkingGreenLight() {
       let currentState = Shelly.getComponentStatus('Switch', CONFIG.greenlight_id).output;
       Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: !currentState });
     });
+    if (CONFIG.debug) console.log("DEBUG: Green light started blinking.");
   }
 }
 
@@ -108,6 +139,7 @@ function stopBlinkingGreenLight() {
     Timer.clear(blinkTimer);
     blinkTimer = null;
     Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: false });
+    if (CONFIG.debug) console.log("DEBUG: Green light blinking stopped.");
   }
 }
 
@@ -129,7 +161,7 @@ function ControlSauna() {
     return;
   }
 
-   // Turn off the heater if the temperature is too high or sensor readings differ too much
+  // Turn off the heater if the temperature is too high or sensor readings differ too much
   if (heater_active && (error_active || Math.max(sauna_temp1, sauna_temp2) >= CONFIG.temp_setpoint)) {
     Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: false });
     if (CONFIG.debug) console.log("Heater off, max temp: " + Math.max(sauna_temp1, sauna_temp2));
@@ -138,43 +170,10 @@ function ControlSauna() {
     Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: true });
     if (CONFIG.debug) console.log("Heater on, min temp: " + Math.max(sauna_temp1, sauna_temp2));
   }
-
-  // Logs temperatures if debug mode is enabled
-  if (CONFIG.debug) {
-    console.log("Heater active: " + heater_active);
-    console.log("Sauna active (s): " + Math.round(timeActive / 1000));
-    console.log("Temp1: " + sauna_temp1 + ", Temp2: " + sauna_temp2);   
-  }
 }
 
-Shelly.addEventHandler(function (event) {
-  if (typeof event.info.event === "undefined") return;
-  if (event.info.component === "input:" + JSON.stringify(CONFIG.input_id)) {
-    if (event.info.state) { 
-        saunaActive = true;
-        stopBlinkingGreenLight();
-        Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: true })
-        startTime = Date.now(); // Starts the timer when sauna control is activated
-        if (CONFIG.debug) {
-          console.log("Sauna activated: " + startTime); 
-          console.log("Input state: " + event.info.state);
-        }     
-    } else {
-        saunaActive = false;   // Deactivates sauna control
-        Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: false })
-        if (CONFIG.debug) {
-          console.log("Sauna deactivated");
-          console.log("Input state: " + event.info.state);
-        }
-    }
-  }
-});
-
-// Configure switch
-Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached", initial_state: "off" }});
-Shelly.call("Switch.SetConfig", { id: CONFIG.greenlight_id, config: {in_mode: "detached", initial_state: "off" }});
-// Set a timer to read temperature every 5 seconds
-Timer.set(1000, true, ControlSauna);
+// Set a timer to read temperature every 10 seconds
+Timer.set(10000, true, ControlSauna);
 
 // Logs the input status if debug mode is enabled
 if (CONFIG.debug) {
