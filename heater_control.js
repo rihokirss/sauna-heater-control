@@ -170,7 +170,40 @@ function ControlSauna() {
     Shelly.call("Switch.Set", { id: CONFIG.switch_id, on: true });
     if (CONFIG.debug) console.log("Heater on, min temp: " + Math.max(sauna_temp1, sauna_temp2));
   }
+
+  if (CONFIG.debug) {
+    console.log("Heater active: " + heater_active);
+    console.log("Sauna active (s): " + Math.round(timeActive / 1000));
+    console.log("Temp1: " + sauna_temp1 + ", Temp2: " + sauna_temp2);   
+  }
 }
+
+Shelly.addEventHandler(function (event) {
+  if (typeof event.info.event === "undefined") return;
+  if (event.info.component === "input:" + JSON.stringify(CONFIG.input_id)) {
+    if (event.info.state) { 
+        saunaActive = true;
+        stopBlinkingGreenLight();
+        Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: true });
+        startTime = Date.now(); // Käivitab taimeri, kui sauna on aktiveeritud
+        if (CONFIG.debug) {
+          console.log("Sauna activated at: " + startTime); 
+          console.log("Input state: " + event.info.state);
+        }     
+    } else {
+        saunaActive = false;   // Lülitab sauna juhtimise välja
+        Shelly.call("Switch.Set", { id: CONFIG.greenlight_id, on: false });
+        if (CONFIG.debug) {
+          console.log("Sauna deactivated");
+          console.log("Input state: " + event.info.state);
+        }
+    }
+  }
+});
+
+// Configure switches
+Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached", initial_state: "off" }});
+Shelly.call("Switch.SetConfig", { id: CONFIG.greenlight_id, config: {in_mode: "detached", initial_state: "off" }});
 
 // Set a timer to read temperature every 10 seconds
 Timer.set(10000, true, ControlSauna);
