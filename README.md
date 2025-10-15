@@ -11,6 +11,7 @@ This repository contains two JavaScript scripts designed for the **Shelly Plus 2
 This script is responsible for the real-time **monitoring and control** of the sauna heater. It continuously reads the temperature from two DS18B20 sensors placed at different locations within the sauna, ensuring safe and efficient heating.
 
 #### **Key Features:**
+- **Web UI configuration (NEW in v1.1):** For Gen3/Gen4/Pro devices, all settings are adjustable through Virtual Components in the web interface - no code editing required!
 - **Automatic temperature regulation:** Maintains the sauna at a user-defined setpoint.
 - **Temperature fluctuation control:** Prevents excessive temperature variations by turning the heater on/off within a defined range.
 - **Overheating protection:** Automatically stops the heater if:
@@ -19,11 +20,42 @@ This script is responsible for the real-time **monitoring and control** of the s
 - **Configurable sensor failure handling:** The heater will only shut down if sensor readings fail **for a configurable number of consecutive attempts** (`consecutive_null_threshold`).
 - **Maximum operation time:** Prevents the sauna from running indefinitely by enforcing a hard limit on operating time.
 - **User control via Shelly input:** Allows manual activation and deactivation of the sauna via a connected switch.
+- **Visual status indicator:** Green LED shows sauna status (on/blinking when error).
 - **Integrated safety script monitoring:** Ensures that the heater does not operate if the safety watchdog script is not running.
 - **Debug mode for troubleshooting:** Provides detailed logs for system diagnostics.
+- **Backward compatible:** Older devices automatically use KVS storage mode.
 
-#### **Configurable Parameters (`CONFIG` object)**
-The script includes a set of user-configurable parameters to customize its behavior:
+#### **Configurable Parameters**
+
+**Starting from version 1.1**, the script supports **two configuration modes**:
+
+##### **1. Virtual Components Mode (Recommended)**
+For **Shelly Gen3, Gen4, and Gen2 Pro devices** (firmware >= 1.4.3), settings are automatically stored as **Virtual Components** and can be adjusted directly through the **Shelly web UI** without editing the script:
+
+- Navigate to your Shelly device's web interface
+- Go to the **"Components"** section
+- Find the **"Sauna Control"** group
+- Adjust settings using the interactive sliders
+
+Available Virtual Component settings:
+- **Target Temperature** (40-120°C) - Default: 80°C
+- **Temperature Delta** (1-15°C) - Default: 5°C
+- **Max Runtime (hours)** (1-12h) - Default: 5h
+- **Sensor Diff Limit** (10-50°C) - Default: 30°C
+- **Max Safety Temp** (80-150°C) - Default: 110°C
+- **Sensor Fail Threshold** (1-20 attempts) - Default: 5
+
+##### **2. KVS Storage Mode (Legacy devices)**
+For **older Shelly devices** that don't support Virtual Components, settings are stored in **KVS (Key-Value Storage)**:
+
+To modify settings:
+1. Navigate to **Menu → Advanced → KVS** in the Shelly web interface
+2. Find the `SaunaConfig` key
+3. Edit the JSON values
+4. Restart the script to apply changes
+
+##### **Initial Configuration (`CONFIG` object)**
+All parameters with their defaults:
 
 | Parameter | Description | Default Value |
 |-----------|-------------|---------------|
@@ -37,7 +69,8 @@ The script includes a set of user-configurable parameters to customize its behav
 | `thermal_runaway_max` | Maximum safe temperature | `110°C` |
 | `safety_script_name` | Name of the safety watchdog script | `"heater_watchdog"` |
 | `consecutive_null_threshold` | Number of consecutive failed sensor readings before stopping the heater | `5` |
-| `debug` | Enable/disable debug logs | `true` |
+| `debug` | Enable/disable debug logs | `false` |
+| `manualKVS` | Force KVS mode instead of Virtual Components | `false` |
 
 ### **2. Heater Monitoring Script (`heater_watchdog.js`)**
 
@@ -70,10 +103,21 @@ To install and use these scripts:
 
 ## **Customization & Troubleshooting**
 
-- **To adjust the sauna temperature:** Modify `temp_setpoint` in the `CONFIG` object.
-- **To change how often sensor readings are checked:** Adjust the `Timer.set()` interval (default `10 seconds`).
-- **To prevent temporary sensor failures from shutting down the heater:** Increase `consecutive_null_threshold`.
-- **To disable debugging messages:** Set `debug: false` in the `CONFIG` object.
+### **For devices with Virtual Components:**
+- **To adjust the sauna temperature:** Use the **"Target Temperature"** slider in the Shelly web UI
+- **To change temperature hysteresis:** Adjust the **"Temperature Delta"** slider (1-15°C)
+- **To prevent temporary sensor failures from shutting down the heater:** Increase **"Sensor Fail Threshold"**
+- Changes take effect immediately - no script restart required
+
+### **For devices using KVS storage:**
+- **To adjust the sauna temperature:** Modify `temp_setpoint` in the `CONFIG` object or KVS
+- **To prevent temporary sensor failures from shutting down the heater:** Increase `consecutive_null_threshold` in KVS
+- **To disable debugging messages:** Set `debug: false` in the `CONFIG` object
+- Restart the script after making changes
+
+### **General:**
+- **To change how often sensor readings are checked:** Adjust the `Timer.set()` interval (default `10 seconds`)
+- **To force KVS mode on newer devices:** Set `manualKVS: true` in the `CONFIG` object
 
 ## **Contributions**
 
