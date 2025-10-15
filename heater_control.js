@@ -377,13 +377,21 @@ function initializeConfig() {
 
 /*  =========  END: VIRTUAL COMPONENTS & KVS FUNCTIONS  =========  */
 
+// Safely get temperature sensor value (returns null if sensor not found)
+function getSensorTemp(sensorId) {
+  let sensor = Shelly.getComponentStatus('Temperature', sensorId);
+  if (sensor !== null && sensor !== undefined) {
+    return sensor.tC;
+  }
+  return null;
+}
+
 // Error checking – modified to wait for 'consecutive_null_threshold' failed readings before stopping
 function errorCheck() {
-  let sauna_temp1 = Shelly.getComponentStatus('Temperature', 100).tC; // First sensor
-  let sauna_temp2 = Shelly.getComponentStatus('Temperature', 101).tC; // Second sensor
-  
+  let sauna_temp1 = getSensorTemp(100);
+  let sauna_temp2 = getSensorTemp(101);
   let errorMessages = [];
-  
+
   // Check if sensor readings are available
   if (typeof sauna_temp1 !== 'number' || typeof sauna_temp2 !== 'number') {
       consecutiveNullCount++;
@@ -502,8 +510,8 @@ function stopBlinkingGreenLight() {
 // Function to read temperature and control the heater
 function ControlSauna() {
   let heater_active = Shelly.getComponentStatus('Switch', CONFIG.switch_id).output; // Get the current state of the heater
-  let sauna_temp1 = Shelly.getComponentStatus('Temperature', 100).tC; // First sensor
-  let sauna_temp2 = Shelly.getComponentStatus('Temperature', 101).tC; // Second sensor
+  let sauna_temp1 = getSensorTemp(100);
+  let sauna_temp2 = getSensorTemp(101);
   let timeActive = Date.now() - startTime;
   let error_active = errorCheck();
   
@@ -562,6 +570,25 @@ Shelly.addEventHandler(function (event) {
 
 // Initialize configuration (load from Virtual Components or KVS)
 initializeConfig();
+
+// Check if temperature sensors are connected
+function checkSensors() {
+  let sensor1 = Shelly.getComponentStatus('Temperature', 100);
+  let sensor2 = Shelly.getComponentStatus('Temperature', 101);
+
+  if (sensor1 === null || sensor1 === undefined) {
+    console.log("WARNING: Temperature sensor #100 not found! Please connect DS18B20 sensor.");
+  }
+  if (sensor2 === null || sensor2 === undefined) {
+    console.log("WARNING: Temperature sensor #101 not found! Please connect DS18B20 sensor.");
+  }
+  if ((sensor1 === null || sensor1 === undefined) && (sensor2 === null || sensor2 === undefined)) {
+    console.log("ERROR: No temperature sensors detected! Script will not function properly without sensors.");
+  }
+}
+
+// Check sensors on startup
+Timer.set(2000, false, checkSensors);
 
 // Configure switches
 Shelly.call("Switch.SetConfig", { id: CONFIG.switch_id, config: {auto_off_delay: CONFIG.timer_on/1000, auto_off: true, auto_on: false, in_mode: "detached", initial_state: "off" }});
